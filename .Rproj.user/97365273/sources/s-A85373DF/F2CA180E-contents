@@ -1,0 +1,45 @@
+### Test for comparing the behaviour of arm::standardize() and manual standardization of inputs before fitting.
+
+### Simulate data
+dat = data.frame(site = rep(c("site1","site2","site3"), c(500,500,200)))
+dat$x1 = round(runif(nrow(dat), 0, 10),1)
+dat$x2 = round(runif(nrow(dat), 10, 100),1)
+m = model.matrix(~site+x1+x2+site:x1, data = dat)
+betas = c(1,    # intercept
+          -1,   # site 2
+          1,    # site 3
+          0.1,  # x1
+          2.3,  # x2
+          1.1,  # site2*x1
+          0)    # site3*x1
+dat$y = rnorm(nrow(dat), mean = m %*% betas, sd = 0.5)
+
+### Fit model as usual
+m1 = lm(y ~ site + x1 + x2 + site:x1, data = dat)
+summary(m1)
+m1
+
+### Use arm::standardize() to standardize fitted model@
+library(arm)
+s_m1 = standardize(m1)
+s_m1
+
+### Attempt to replicate the behaviour of arm::standardize by hand.
+### Manual standardisation for comparison:
+dat$s_x1 = scale(dat$x1, scale = 2*sd(dat$x1))    # Note scaled to 2*SD!
+dat$s_x2 = scale(dat$x2, scale = 2*sd(dat$x2))    # Note scaled to 2*SD!
+levels(dat$site) = c("1","2","3")                 # "Translating" factor to numeric indicators
+dat$s_site = scale(as.numeric(as.vector(dat$site)), scale = 2)  # Scale indicators. Note using 2 to reflect 2 SD?
+# In this case, this appears to turn out to be centered on the "middle" level, and the others are -0.5 and +0.5.
+dat$s_site = factor(dat$s_site) # This sets the re-scaled indicator back to be a factor.
+
+### Fit a new model but using the standardized inputs:
+m2 = lm(y ~ s_site + s_x1 + s_x2 + s_site:s_x1, data = dat)
+summary(m2)
+
+### Comparing coefficients between arm::standardize refitted model, and our manual one:
+s_m1
+m2
+### Note these are identical.
+
+### Note this works regardless of whether or not `site` has balanced sample sizes.

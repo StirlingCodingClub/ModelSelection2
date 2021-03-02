@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1614708606349.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "AC18FA61",
+    "lastKnownWriteTime" : 1614710663,
+    "last_content_update" : 1614710663074,
+    "path" : "~/Documents/docs/000_R/CodingClub/ModelSelection2/takahe_grueber_pred.R",
+    "project_path" : "takahe_grueber_pred.R",
+    "properties" : {
+        "cursorPosition" : "59,43",
+        "scrollLine" : "48",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

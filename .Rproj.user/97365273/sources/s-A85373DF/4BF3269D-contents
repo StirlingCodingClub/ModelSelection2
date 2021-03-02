@@ -1,0 +1,136 @@
+### Some examples of how to calculate prediction intervals from GLMM fits, as well as from model-averaged coefficients.
+
+### Jeroen Minderman, February 2021
+
+load("glmm_sim_data1.Rdata")
+
+### Example data has three fixed effects (x1-3) and two random effects f1 and 2:
+str(mydat)
+head(mydat)
+### Exploratory plots:
+par(mfrow=c(1,3))
+plot(mydat$x1, mydat$y, pch = 21, col = "black", bg = "black")
+plot(mydat$x2, mydat$y, pch = 21, col = "black", bg = "black")
+plot(mydat$x3, mydat$y, pch = 21, col = "black", bg = "black")
+par(mfrow=c(1,1))
+
+### Fit "full" model:
+m<-glmer(y~x1+x2+x3+(1|f1)+(1|f2),mydat,family="poisson", na.action = na.fail)
+summary(m)
+
+### Point predictions from this model.
+# Predicting for range of X1 only, other fixed effects at their observed means.
+# This is also "ignoring" random effects, i.e. at an "average" random level.
+nd1 = data.frame(x1 = 0:10, x2 = mean(mydat$x2), x3 = mean(mydat$x3))
+pred1 = predict(m, type = "response", newdata = nd1, re.form = NA)
+plot(mydat$x1, mydat$y, pch = 21, col = "black", bg = "black")
+lines(nd1$x1, pred1, lwd = 4, col = "red")
+# How do do prediction intervals? No SE's for predictions from predict.merMod.
+# From ?predict.merMod:
+# "There is no option for computing standard errors of predictions because it is difficult to define an efficient method
+# that incorporates uncertainty in the variance parameters; we recommend bootMer for this task."
+
+### Three options for doing prediction intervals for predictions from GLMMs:
+
+### 1. "By hand".
+# Make a model matrix out of our newdata frame
+nd1_mm = model.matrix(~x1+x2+x3, data = nd1)
+# This is the point predictions on the LINK scale (note there is a log-link because Poisson:)
+m_ppred = nd1_mm %*% fixef(m)
+# This calculates the variance of predictions, based on the variance-covariance matrix, estimated from the model:
+m_predvar = diag(nd1_mm %*% tcrossprod(vcov(m),nd1_mm))
+# You can now just take the prediction variance and "turn this into" a standard error by taking the sqrt.
+# Upper and lower prediction intervals are then the point prediction +/- 2* that standard error.
+# Note that at this point we BACK-TRANSFORM from the log-link:
+m_lo = exp(m_ppred-1.96*sqrt(m_predvar))
+m_hi = exp(m_ppred+1.96*sqrt(m_predvar))
+# Add the point predictions to the existing plot (note we also need to backtransform these)
+lines(0:10, exp(m_ppred),lty = "dashed", lwd = 2) 
+# Note this is (should be) the exact same as the point prediction from predict(), as above, so should sit on top of the
+# red line.
+# Now add upper and lower bounds:
+lines(0:10, m_lo,lty = "dashed", lwd = 2) 
+lines(0:10, m_hi,lty = "dashed", lwd = 2) 
+
+### 2. Using arm::sim()
+library(scales) # Just to be able to use alpha() for colour transparancies
+library(arm)
+m_sim = sim(m, n.sim = 1000)
+str(m_sim)
+# f_sim are n.sim "resampled" fixed effect parameters, drawn from their estimated distributions.
+f_sim = fixef(m_sim)
+# We can now calculate a prediction for each of these 1000 par sets, calculate the mean and upper/lower quantiles.
+# You could do this with a for-loop and iterate over each row in f_sim.
+# Create an output matrix for each of the 11 predictions (values of x1) as cols and the number of simulated parameters
+# as rows.
+all_preds = matrix(NA, nrow = nrow(f_sim), ncol = 11)
+for(i in 1:nrow(f_sim)) {
+  all_preds[i,] = as.vector(exp(nd1_mm %*% f_sim[i,]))
+}
+# Each row in the resulting matrix is a prediction of y given for a value f x1, given a sampled set of parameters.
+# For illustration, you could plot all of these:
+plot(mydat$x1, mydat$y, pch = 21, col = "darkgrey", bg = "darkgrey")
+apply(all_preds, 1, function(x) lines(0:10, x, col = alpha("black",0.25)))
+# Instead you could just plot the mean and upper/lower 95% quantiles.
+# Note that when using apply() to calculate the means/quantiles, we want to do that rows, per column:
+plot(mydat$x1, mydat$y, pch = 21, col = "darkgrey", bg = "darkgrey")
+# Here, apply() just takes a matrix (or dataframe), applies a function over either rows (1) or columns (2), and then
+# defines what function to apply:
+lines(0:10, apply(all_preds, 2, mean), col = "darkblue", lwd = 3)
+lines(0:10, apply(all_preds, 2, function(x) quantile(x, probs = 0.025)), col = "darkblue", lwd = 2, lty = "dashed")
+lines(0:10, apply(all_preds, 2, function(x) quantile(x, probs = 0.975)), col = "darkblue", lwd = 2, lty = "dashed")
+# Just for reference, overplot the manually calculated upper/lower bounds as calculated above:
+lines(0:10, m_lo,lty = "dotted", lwd = 2, col = "red") 
+lines(0:10, m_hi,lty = "dotted", lwd = 2, col = "red") 
+# As expected, these are almost indentical.
+
+### 3. Using bootMer:
+prediction_function = function(.) {
+  exp(nd1_mm%*%fixef(.)) 
+}
+# bootstrap the fitted model - WARNING THIS WILL TAKE A WHILE, 100 JUST FOR ILLUSTRATION HERE, PROB WANT A LOT MORE:
+m_bs = bootMer(m,prediction_function,nsim=100, use.u = FALSE)
+lines(0:10, apply(m_bs$t, 2, function(x) quantile(x, probs=c(0.025))), col = "orange")
+lines(0:10, apply(m_bs$t, 2, function(x) quantile(x, probs=c(0.975))), col = "orange")
+# Again this gives the same approximate answer as both above approaches.
+
+
+### Model averageing prediction intervals
+
+### MuMIn just so we have a quick way of comparing models using `dredge`:
+### (please define an a priori set of models to compare instead!)
+library(MuMIn)
+ms = dredge(m)
+# You can get the model comparison table just by printing ms:
+ms
+# Just for reference you can get a whole evaluated model by using get.models():
+summary(get.models(ms, subset=1)[[1]])
+
+### Model averaged parameters can be calculated by doing.
+# Note that we need to set fit to TRUE because we need each component model for the variance-covariance matrixes:
+ma = model.avg(ms, fit = T)
+ma
+# Note both full and subset parameters (akin to the "null" and natural average method in Burnham & Anderson):
+
+# We can now use the exact same "manual" method as used above, to calculate predictions from these averaged parameters.
+# IMPORTANT: note this is on the link scale!
+ma_ppred_link = nd1_mm %*% ma$coefficients["subset",]
+# And again use the exact same method to calculate upper/lower bounds, based on the averaged vcov matrix:
+ma_predvar = diag(nd1_mm %*% tcrossprod(vcov(ma),nd1_mm))
+ma_lo = exp(ma_ppred_link-1.96*sqrt(ma_predvar))
+ma_hi = exp(ma_ppred_link+1.96*sqrt(ma_predvar))
+
+# Plot these predictions:
+plot(mydat$x1, mydat$y, pch = 21, col = "darkgrey", bg = "darkgrey")
+lines(0:10, exp(ma_ppred_link), lwd = 3)
+lines(0:10, ma_lo, lwd = 2, lty = "dashed")
+lines(0:10, ma_hi, lwd = 2, lty = "dashed")
+
+### We can repeat these predictions using `modavgPred` from package AICcmodavg:
+library(AICcmodavg)
+pred_avg = modavgPred(m_set, newdata = nd1)
+lines(0:10, pred_avg$mod.avg.pred, col = "red", lwd = 1.5)
+lines(0:10, pred_avg$lower.CL, col = "red", lwd = 1, lty = "dashed")
+lines(0:10, pred_avg$upper.CL, col = "red", lwd = 1, lty = "dashed")
+# Exactly the same answer, and we're happy! :)
+
